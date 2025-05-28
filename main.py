@@ -1,0 +1,519 @@
+import pygame, random
+
+WINDOW_WIDTH = 1440
+WINDOW_HEIGHT = 768
+FPS = 60
+
+pygame.init()
+screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.RESIZABLE)
+pygame.display.set_caption("Medusosis")
+clock = pygame.time.Clock()
+is_fullscreen = False
+
+#Load Resources
+Blue75 = pygame.image.load("Resources/Images/Map/Blue75.png").convert_alpha()
+Blue25 = pygame.image.load("Resources/Images/Map/Blue25.png").convert_alpha()
+Red75 = pygame.image.load("Resources/Images/Map/Red75.png").convert_alpha()
+Red25 = pygame.image.load("Resources/Images/Map/Red25.png").convert_alpha()
+Avaiable = pygame.image.load("Resources/Images/Map/Avaiable.png").convert_alpha()
+Not_Avaiable = pygame.image.load("Resources/Images/Map/Not_Avaiable.png").convert_alpha()
+
+#Map settings
+TILE_SIZE = 75
+OVERLAP = 3
+EFFECTIVE_TILE_SIZE = TILE_SIZE - OVERLAP
+MAP_SIZE = 10
+MAP_PIXEL_SIZE = MAP_SIZE * EFFECTIVE_TILE_SIZE
+
+SMALL_TILE_SIZE = 25
+SMALL_OVERLAP = 1
+EFFECTIVE_SMALL_TILE_SIZE = SMALL_TILE_SIZE - SMALL_OVERLAP
+SMALL_MAP_PIXEL_SIZE = MAP_SIZE * EFFECTIVE_SMALL_TILE_SIZE
+MAP_GAP = 20
+
+# Initialize matrices
+player_blue_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]  # 0 = Blue tile
+player_red_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]   # 0 = Red tile
+
+#Defining variables
+phrase = "Ready"
+#phrase = "Battle_Blue"
+edit_mode = False
+selected_jelly = None
+temp_matrix = None
+temp_relative_positions = None # Temporary matrix after rotation
+temp_image = None #Temporary image path used for hightlighted block until the edit mode ends
+jelly_shape = None  # Selected jellyfish's shape (relative_positions matrix)
+mouse_clicked = False
+right_mouse_clicked = False
+selected_offset = None  # (y, x) vị trí tương đối của ô trong khối được click
+
+mother_jellyfish_data = [
+    {
+        "id": 1,
+        "name": "Moon Jellyfish",
+        "children": [ #If change rotation, relative_positions must be recalculated
+            {"id": 1, "image": "Resources/Images/Units/BT_2.png", "relative_positions": [[1, 1]], "rotation": 0},
+            #{"id": 2, "image": "Resources/Images/Units/BT_2.png", "relative_positions": [[1, 1]], "rotation": 1},
+            {"id": 2, "image": "Resources/Images/Units/BT_6.png", "relative_positions": [[1, 0],
+                                                                                         [1, 1]], "rotation": 0},
+            {"id": 3, "image": "Resources/Images/Units/BT_3.png", "relative_positions": [[1, 1, 1]], "rotation": 0},
+            {"id": 4, "image": "Resources/Images/Units/BT_4.png", "relative_positions": [[1, 1, 1, 1]], "rotation": 0},
+            {"id": 5, "image": "Resources/Images/Units/BT_7.png", "relative_positions": [[1, 1],
+                                                                                         [1, 1]], "rotation": 0},
+        ]
+    }
+]
+
+# Function to convert relative_positions to matrix
+def positions_to_matrix(positions):
+    if not positions:
+        return [[]]
+    max_x = max(x for x, _ in positions)
+    max_y = max(y for _, y in positions)
+    matrix = [[0 for _ in range(max_x + 1)] for _ in range(max_y + 1)]
+    for x, y in positions:
+        matrix[y][x] = 1
+    return matrix
+
+def rotate_matrix(matrix, rotation):
+    if rotation == 0:
+        return matrix
+    rows = len(matrix)
+    cols = len(matrix[0])
+    
+    if rotation == 1:  # 90 degrees clockwise
+        new_matrix = [[0 for _ in range(rows)] for _ in range(cols)]
+        for i in range(rows):
+            for j in range(cols):
+                new_matrix[j][rows - 1 - i] = matrix[i][j]
+        return new_matrix
+    elif rotation == 2:  # 180 degrees
+        new_matrix = [[0 for _ in range(cols)] for _ in range(rows)]
+        for i in range(rows):
+            for j in range(cols):
+                new_matrix[rows - 1 - i][cols - 1 - j] = matrix[i][j]
+        return new_matrix
+    elif rotation == 3:  # 270 degrees clockwise
+        new_matrix = [[0 for _ in range(rows)] for _ in range(cols)]
+        for i in range(rows):
+            for j in range(cols):
+                new_matrix[cols - 1 - j][i] = matrix[i][j]
+        return new_matrix
+    return matrix
+
+def edit_rotate(matrix):# Rotate matrix 90 degrees clockwise (in edit mode)
+    return [list(row) for row in zip(*matrix[::-1])]
+
+def rotate_offset_90_clockwise(offset, shape_height, shape_width):
+    y, x = offset
+    return (x, shape_height - 1 - y)
+
+# Function to place jellyfish randomly
+def place_jellyfish_random(mother_id):
+    mother = mother_jellyfish_data[0]  # Only one mother for now
+    children = mother["children"]
+    placed_jellyfish = []
+    
+    for child in children:
+        max_attempts = 100  # Limit attempts to avoid infinite loop
+        while max_attempts > 0:
+            start_row = random.randint(0, MAP_SIZE - 1)
+            start_col = random.randint(0, MAP_SIZE - 1)
+
+            # Rotate matrix base on rotation
+            matrix = rotate_matrix(child["relative_positions"], child["rotation"])
+            # Convert matrix into (x,y) list
+            positions = []
+            for y in range(len(matrix)):
+                for x in range(len(matrix[0])):
+                    if matrix[y][x] == 1:
+                        positions.append((x, y))
+
+            is_valid = True
+            
+            for x, y in positions:
+                row = start_row + y
+                col = start_col + x
+                if (row >= MAP_SIZE or col >= MAP_SIZE or row < 0 or col < 0 or 
+                    player_blue_matrix[row][col] == 1):
+                    is_valid = False
+                    break
+            
+            if is_valid:
+                for x, y in positions:
+                    row = start_row + y
+                    col = start_col + x
+                    player_blue_matrix[row][col] = 1
+                placed_jellyfish.append({
+                    "child_id": child["id"],
+                    "start_row": start_row,
+                    "start_col": start_col,
+                    "relative_positions": matrix, # Save rotated matrix
+                    "rotation": child["rotation"]
+                })
+                break
+            max_attempts -= 1
+    
+    return placed_jellyfish
+
+
+# Place all jellyfish randomly at start
+placed_jellyfish = place_jellyfish_random(1)
+print("Placed Jellyfish Data:")
+for jelly in placed_jellyfish:
+    print(jelly)
+
+#Draw Map Before Battle (My Map - Blue 75x75)
+def draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked):
+    global edit_mode, selected_jelly, temp_matrix, jelly_shape, temp_relative_positions, temp_rotation, temp_image, selected_offset
+    # Calculate map position to center it
+    map_x = (screen_width - MAP_PIXEL_SIZE) // 2
+    map_y = (screen_height - MAP_PIXEL_SIZE) // 2
+
+    # Draw the 10x10 map
+    for row in range(MAP_SIZE):
+        for col in range(MAP_SIZE):
+            # Calculate position for each tile, accounting for overlap
+            tile_x = map_x + col * EFFECTIVE_TILE_SIZE
+            tile_y = map_y + row * EFFECTIVE_TILE_SIZE
+            if player_blue_matrix[row][col] == 0:
+                screen.blit(Blue75, (tile_x, tile_y))
+
+    # Get current mouse position
+    mouse_x, mouse_y = pygame.mouse.get_pos()
+
+    drawn_jellyfish = set()
+    hovered_jelly = None  # Store the jellyfish that is being hovered
+    hovered_offset = None
+    if not edit_mode:
+        if map_x <= mouse_x < map_x + MAP_PIXEL_SIZE and map_y <= mouse_y < map_y + MAP_PIXEL_SIZE:
+            grid_col = (mouse_x - map_x) // EFFECTIVE_TILE_SIZE
+            grid_row = (mouse_y - map_y) // EFFECTIVE_TILE_SIZE
+            for jelly in placed_jellyfish:
+                start_row = jelly["start_row"]
+                start_col = jelly["start_col"]
+                matrix = jelly["relative_positions"]
+                rel_row = grid_row - start_row
+                rel_col = grid_col - start_col
+                if (0 <= rel_row < len(matrix) and 0 <= rel_col < len(matrix[0]) and matrix[rel_row][rel_col] == 1):
+                    hovered_jelly = jelly
+                    hovered_offset = (rel_row, rel_col)
+                    break
+
+    if mouse_clicked:
+        if hovered_jelly and not edit_mode:
+            # Start edit_mode
+            edit_mode = True
+            selected_jelly = hovered_jelly
+            selected_offset = hovered_offset
+            temp_matrix = [row[:] for row in player_blue_matrix]  # Copy the map matrix
+
+            # Remove selected block's position in the temp matrix
+            jelly_matrix = selected_jelly["relative_positions"]
+            for y in range(len(jelly_matrix)):
+                for x in range(len(jelly_matrix[0])):
+                    if jelly_matrix[y][x] == 1:
+                        temp_row = selected_jelly["start_row"] + y
+                        temp_col = selected_jelly["start_col"] + x
+                        if (0 <= temp_row < MAP_SIZE and 0 <= temp_col < MAP_SIZE):
+                            temp_matrix[temp_row][temp_col] = 0
+
+            jelly_shape = selected_jelly["relative_positions"]
+            temp_relative_positions = [row[:] for row in jelly_matrix]  # Deep copy
+            temp_rotation = selected_jelly["rotation"]  # Initialize temp_rotation
+
+             # Set temp_image to highlighted image path
+            try:
+                child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == selected_jelly["child_id"])
+                temp_image = child["image"].replace("BT_", "H_BT_")
+            except StopIteration:
+                temp_image = None
+
+        elif edit_mode and selected_jelly is not None and temp_relative_positions is not None:
+            # Check and apply new position
+            cursor_row = (mouse_y - map_y) // EFFECTIVE_TILE_SIZE
+            cursor_col = (mouse_x - map_x) // EFFECTIVE_TILE_SIZE
+            new_start_row = cursor_row - selected_offset[0]
+            new_start_col = cursor_col - selected_offset[1]
+            is_valid = True
+            for y in range(len(temp_relative_positions)):
+                for x in range(len(temp_relative_positions[0])):
+                    if temp_relative_positions[y][x] == 1:
+                        temp_row = new_start_row + y
+                        temp_col = new_start_col + x
+                        if (temp_row >= MAP_SIZE or temp_col >= MAP_SIZE or temp_row < 0 or temp_col < 0 or temp_matrix[temp_row][temp_col] == 1):
+                            is_valid = False
+                            break
+                        
+                if not is_valid:
+                    break
+
+            if is_valid:
+                # Clear old position in player_blue_matrix
+                old_matrix = selected_jelly["relative_positions"]
+                for y in range(len(old_matrix)):
+                    for x in range(len(old_matrix[0])):
+                        if old_matrix[y][x] == 1:
+                            old_row = selected_jelly["start_row"] + y
+                            old_col = selected_jelly["start_col"] + x
+                            if (0 <= old_row < MAP_SIZE and 0 <= old_col < MAP_SIZE):
+                                player_blue_matrix[old_row][old_col] = 0
+
+                # Apply new position
+                for y in range(len(temp_relative_positions)):
+                    for x in range(len(temp_relative_positions[0])):
+                        if temp_relative_positions[y][x] == 1:
+                            new_row = new_start_row + y
+                            new_col = new_start_col + x
+                            if 0 <= new_row < MAP_SIZE and 0 <= new_col < MAP_SIZE:
+                                player_blue_matrix[new_row][new_col] = 1            
+
+                selected_jelly["start_row"] = new_start_row
+                selected_jelly["start_col"] = new_start_col
+                selected_jelly["relative_positions"] = [row[:] for row in temp_relative_positions]
+                selected_jelly["rotation"] = temp_rotation
+
+            # Stop edit_mode
+            edit_mode = False
+            selected_jelly = None
+            temp_matrix = None
+            jelly_shape = None
+            temp_relative_positions = None
+            temp_rotation = 0
+            temp_image = None
+    
+    # Handle right-click to rotate in edit_mode
+    if right_mouse_clicked and edit_mode and selected_jelly is not None and temp_relative_positions is not None:
+        # Lưu thông số cũ
+        old_offset_y, old_offset_x = selected_offset
+        old_height = len(temp_relative_positions)
+        old_width = len(temp_relative_positions[0])
+
+        temp_relative_positions = edit_rotate(temp_relative_positions)
+        jelly_shape = [row[:] for row in temp_relative_positions]  # Sync jelly_shape for display
+        temp_rotation = (temp_rotation + 1) % 4  # Update temp rotation
+
+        # Xoay offset
+        selected_offset = rotate_offset_90_clockwise((old_offset_y, old_offset_x), old_height, old_width)
+
+    # Stop edit_mode if the cursor get out of the map
+    if edit_mode and not (map_x <= mouse_x < map_x + MAP_PIXEL_SIZE and map_y <= mouse_y < map_y + MAP_PIXEL_SIZE):
+        edit_mode = False
+        selected_jelly = None
+        temp_matrix = None
+        jelly_shape = None
+        temp_relative_positions = None
+        temp_rotation = 0
+        temp_image = None
+
+    # First pass: Check for hover and draw non-hovered jellyfish
+    for jelly in placed_jellyfish:
+        if jelly["child_id"] not in drawn_jellyfish:
+            if jelly != hovered_jelly:
+                try:
+                    child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == jelly["child_id"])
+
+                    # Base image path
+                    base_image_path = child["image"]
+                    jelly_image = pygame.image.load(base_image_path).convert_alpha()
+
+                    # Calculate the bounding box of the jellyfish based on its rotated matrix
+                    matrix = jelly["relative_positions"]
+
+                    # Base starting position
+                    start_row = jelly["start_row"]
+                    start_col = jelly["start_col"]
+
+                    # Draw at the adjusted starting position
+                    tile_x = map_x + start_col * EFFECTIVE_TILE_SIZE
+                    tile_y = map_y + start_row * EFFECTIVE_TILE_SIZE
+
+                    # Rotate the image based on rotation (clockwise)
+                    rotation_angle = jelly["rotation"] * 90
+                    rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
+
+                    screen.blit(rotated_image, (tile_x, tile_y))
+                    drawn_jellyfish.add(jelly["child_id"])
+
+                except (pygame.error, StopIteration) as error:
+                    print(f"Error: {error}")
+
+    # Second pass: Draw the hovered jellyfish on top (if any) (outside edit_mode)
+    if hovered_jelly and not edit_mode:
+        for jelly in placed_jellyfish:
+            if jelly["child_id"] not in drawn_jellyfish:
+                try:
+                    child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == hovered_jelly["child_id"])
+                    base_image_path = child["image"]
+                    highlighted_image_path = base_image_path.replace("BT_", "H_BT_")
+                    jelly_image = pygame.image.load(highlighted_image_path).convert_alpha()
+                    rotation_angle = jelly["rotation"] * 90
+                    rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
+                    tile_x = map_x + hovered_jelly["start_col"] * EFFECTIVE_TILE_SIZE
+                    tile_y = map_y + hovered_jelly["start_row"] * EFFECTIVE_TILE_SIZE
+                    screen.blit(rotated_image, (tile_x, tile_y))
+                    drawn_jellyfish.add(jelly["child_id"])
+
+                except (pygame.error, StopIteration) as error:
+                    print(f"Error: {error}")
+
+    # Third pass: Draw hovered jellyfish (inside edit_mode)
+    if edit_mode and selected_jelly is not None and temp_image is not None:
+        try:
+            jelly_image = pygame.image.load(temp_image).convert_alpha()
+            rotation_angle = selected_jelly["rotation"] * 90
+            rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
+            tile_x = map_x + selected_jelly["start_col"] * EFFECTIVE_TILE_SIZE
+            tile_y = map_y + selected_jelly["start_row"] * EFFECTIVE_TILE_SIZE
+            screen.blit(rotated_image, (tile_x, tile_y))
+            drawn_jellyfish.add(selected_jelly["child_id"])
+        except (pygame.error, StopIteration) as error:
+            print(f"Error: {error}")
+
+    # Draw temp blocks in edit_mode
+    if edit_mode and map_x <= mouse_x < map_x + MAP_PIXEL_SIZE and map_y <= mouse_y < map_y + MAP_PIXEL_SIZE:
+        cursor_row = (mouse_y - map_y) // EFFECTIVE_TILE_SIZE
+        cursor_col = (mouse_x - map_x) // EFFECTIVE_TILE_SIZE
+        new_start_row = cursor_row - selected_offset[0]
+        new_start_col = cursor_col - selected_offset[1]
+        is_valid = True
+        # Draw Avaiable
+        for y in range(len(temp_relative_positions)):
+            for x in range(len(temp_relative_positions[0])):
+                if temp_relative_positions[y][x] == 1:
+                    temp_row = new_start_row + y
+                    temp_col = new_start_col + x
+                    if (temp_row >= MAP_SIZE or temp_col >= MAP_SIZE or temp_row < 0 or temp_col < 0 or temp_matrix[temp_row][temp_col] == 1):
+                        is_valid = False
+                        break
+            
+            if not is_valid:
+                break
+
+        # Draw Avaiable for valid positions
+        for y in range(len(temp_relative_positions)):
+            for x in range(len(temp_relative_positions[0])):
+                if temp_relative_positions[y][x] == 1:
+                    temp_row = new_start_row + y
+                    temp_col = new_start_col + x
+                    tile_x = map_x + temp_col * EFFECTIVE_TILE_SIZE
+                    tile_y = map_y + temp_row * EFFECTIVE_TILE_SIZE
+                    if (0 <= temp_row < MAP_SIZE and 0 <= temp_col < MAP_SIZE and temp_matrix[temp_row][temp_col] == 0):
+                        screen.blit(Avaiable, (tile_x, tile_y))
+
+        # Draw Not_Avaiable for invalid positions
+        if not is_valid:
+            for y in range(len(temp_relative_positions)):
+                for x in range(len(temp_relative_positions[0])):
+                    if temp_relative_positions[y][x] == 1:
+                        temp_row = new_start_row + y
+                        temp_col = new_start_col + x
+                        tile_x = map_x + temp_col * EFFECTIVE_TILE_SIZE
+                        tile_y = map_y + temp_row * EFFECTIVE_TILE_SIZE
+                        if 0 <= temp_row < MAP_SIZE and 0 <= temp_col < MAP_SIZE:
+                            screen.blit(Not_Avaiable, (tile_x, tile_y))
+
+# Draw Battle Blue Phase (Blue 75x75 map on left, Red 25x25 map on right)
+def draw_battle_blue(screen_width, screen_height):
+    # Calculate total width of both maps + gap
+    total_width = MAP_PIXEL_SIZE + MAP_GAP + SMALL_MAP_PIXEL_SIZE
+    # Center the entire block horizontally
+    start_x = (screen_width - total_width) // 2
+    # Center the blue map vertically
+    blue_map_y = (screen_height - MAP_PIXEL_SIZE) // 2
+    # Blue map (75x75 tiles) positioned on the left
+    blue_map_x = start_x
+
+    # Draw blue map
+    for row in range(MAP_SIZE):
+        for col in range(MAP_SIZE):
+            tile_x = blue_map_x + col * EFFECTIVE_TILE_SIZE
+            tile_y = blue_map_y + row * EFFECTIVE_TILE_SIZE
+            if player_blue_matrix[row][col] == 0:
+                screen.blit(Blue75, (tile_x, tile_y))
+
+    # Red map (25x25 tiles) positioned 100px to the right of blue map
+    red_map_x = blue_map_x + MAP_PIXEL_SIZE + MAP_GAP
+    red_map_y = blue_map_y  # Align top of red map with blue map
+
+    # Draw red map (10x10 with 25x25 tiles)
+    for row in range(MAP_SIZE):
+        for col in range(MAP_SIZE):
+            tile_x = red_map_x + col * EFFECTIVE_SMALL_TILE_SIZE
+            tile_y = red_map_y + row * EFFECTIVE_SMALL_TILE_SIZE
+            if player_red_matrix[row][col] == 0:
+                screen.blit(Red25, (tile_x, tile_y))
+
+# Draw Battle Red Phase (Blue 25x25 map on left, Red 75x75 map on right)
+def draw_battle_red(screen_width, screen_height):
+    # Calculate total width of both maps + gap
+    total_width = SMALL_MAP_PIXEL_SIZE + MAP_GAP + MAP_PIXEL_SIZE
+    # Center the entire block horizontally
+    start_x = (screen_width - total_width) // 2
+    # Center the red map vertically
+    red_map_y = (screen_height - MAP_PIXEL_SIZE) // 2
+
+    # Blue map (25x25 tiles) positioned on the left
+    blue_map_x = start_x
+    blue_map_y = red_map_y  # Align top of blue map with red map
+
+    # Draw blue map (10x10 with 25x25 tiles)
+    for row in range(MAP_SIZE):
+        for col in range(MAP_SIZE):
+            tile_x = blue_map_x + col * EFFECTIVE_SMALL_TILE_SIZE
+            tile_y = blue_map_y + row * EFFECTIVE_SMALL_TILE_SIZE
+            if player_red_matrix[row][col] == 0:
+                screen.blit(Blue25, (tile_x, tile_y))
+
+    # Red map (75x75 tiles) positioned right of blue map
+    red_map_x = blue_map_x + SMALL_MAP_PIXEL_SIZE + MAP_GAP
+
+    # Draw red map (10x10 with 75x75 tiles)
+    for row in range(MAP_SIZE):
+        for col in range(MAP_SIZE):
+            tile_x = red_map_x + col * EFFECTIVE_TILE_SIZE
+            tile_y = red_map_y + row * EFFECTIVE_TILE_SIZE
+            if player_blue_matrix[row][col] == 0:
+                screen.blit(Red75, (tile_x, tile_y))
+
+running = True
+while running:
+    mouse_clicked = False
+    right_mouse_clicked = False
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.VIDEORESIZE:
+            if not is_fullscreen:
+                screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE:
+                # Switch between Battle_Blue and Battle_Red
+                if phrase == "Battle_Blue":
+                    phrase = "Battle_Red"
+                elif phrase == "Battle_Red":
+                    phrase = "Battle_Blue"
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: # Left mouse
+            mouse_clicked = True
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3 and edit_mode: # Right mouse
+            right_mouse_clicked = True
+
+    #Current window size
+    screen_width, screen_height = screen.get_size()
+    screen.fill((0, 0, 0))
+
+    if phrase == "Ready":
+        draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked)
+    elif phrase == "Battle_Blue":
+        draw_battle_blue(screen_width, screen_height)
+    elif phrase == "Battle_Red":
+        draw_battle_red(screen_width, screen_height)
+    
+    # Update display
+    pygame.display.flip()
+    clock.tick(FPS)
+
+pygame.quit()
+
+    
