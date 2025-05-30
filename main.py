@@ -17,6 +17,10 @@ Red75 = pygame.image.load("Resources/Images/Map/Red75.png").convert_alpha()
 Red25 = pygame.image.load("Resources/Images/Map/Red25.png").convert_alpha()
 Avaiable = pygame.image.load("Resources/Images/Map/Avaiable.png").convert_alpha()
 Not_Avaiable = pygame.image.load("Resources/Images/Map/Not_Avaiable.png").convert_alpha()
+Found25 = pygame.image.load("Resources/Images/Map/Found25.png").convert_alpha()
+Found75 = pygame.image.load("Resources/Images/Map/Found75.png").convert_alpha()
+Missed25 = pygame.image.load("Resources/Images/Map/Missed25.png").convert_alpha()
+Missed75 = pygame.image.load("Resources/Images/Map/Missed75.png").convert_alpha()
 
 #Map settings
 TILE_SIZE = 75
@@ -36,8 +40,7 @@ player_blue_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]  # 
 player_red_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]   # 0 = Red tile
 
 #Defining variables
-phrase = "Ready"
-#phrase = "Battle_Blue"
+phase = "Ready"
 edit_mode = False
 selected_jelly = None
 temp_matrix = None
@@ -46,7 +49,17 @@ temp_image = None #Temporary image path used for hightlighted block until the ed
 jelly_shape = None  # Selected jellyfish's shape (relative_positions matrix)
 mouse_clicked = False
 right_mouse_clicked = False
-selected_offset = None  # (y, x) vị trí tương đối của ô trong khối được click
+selected_offset = None  # (y, x) relative position of the block in clicked unit
+enemy_jellyfish = []
+last_shot_time = 0 # (ms)
+waiting_for_turn = False
+think = False
+start_thinking = 0 # (ms)
+thinking_time = 0
+game_over = False
+game_over_time = 0
+font_large = pygame.font.SysFont("arial", 80)
+font_small = pygame.font.SysFont("arial", 40)
 
 mother_jellyfish_data = [
     {
@@ -157,12 +170,85 @@ def place_jellyfish_random(mother_id):
     
     return placed_jellyfish
 
-
 # Place all jellyfish randomly at start
 placed_jellyfish = place_jellyfish_random(1)
 print("Placed Jellyfish Data:")
 for jelly in placed_jellyfish:
     print(jelly)
+
+def place_enemy_jellyfish_random(mother_id):
+    mother = mother_jellyfish_data[0]
+    children = mother["children"]
+    placed_jellyfish = []
+    
+    for child in children:
+        max_attempts = 100
+        while max_attempts > 0:
+            start_row = random.randint(0, MAP_SIZE - 1)
+            start_col = random.randint(0, MAP_SIZE - 1)
+            matrix = rotate_matrix(child["relative_positions"], child["rotation"])
+            positions = []
+            for y in range(len(matrix)):
+                for x in range(len(matrix[0])):
+                    if matrix[y][x] == 1:
+                        positions.append((x, y))
+            is_valid = True
+            for x, y in positions:
+                row = start_row + y
+                col = start_col + x
+                if (row >= MAP_SIZE or col >= MAP_SIZE or row < 0 or col < 0 or 
+                    player_red_matrix[row][col] == 1):
+                    is_valid = False
+                    break
+            if is_valid:
+                for x, y in positions:
+                    row = start_row + y
+                    col = start_col + x
+                    player_red_matrix[row][col] = 1
+                placed_jellyfish.append({
+                    "child_id": child["id"],
+                    "start_row": start_row,
+                    "start_col": start_col,
+                    "relative_positions": matrix,
+                    "rotation": child["rotation"]
+                })
+                break
+            max_attempts -= 1
+    
+    return placed_jellyfish
+
+def is_jelly_destroyed(jelly, matrix):
+    start_row = jelly["start_row"]
+    start_col = jelly["start_col"]
+    relative_positions = jelly["relative_positions"]
+    for y in range(len(relative_positions)):
+        for x in range(len(relative_positions[0])):
+            if relative_positions[y][x] == 1:
+                row = start_row + y
+                col = start_col + x
+                if 0 <= row < MAP_SIZE and 0 <= col < MAP_SIZE:
+                    if matrix[row][col] != 2: 
+                        return False
+    return True
+
+def enemy_attack():
+    near_hits = []
+    for row in range(MAP_SIZE):
+        for col in range(MAP_SIZE):
+            if player_blue_matrix[row][col] == 2: # Check player's map for hits
+                for dr, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
+                    r, c = row + dr, col + dc
+                    if 0 <= r < MAP_SIZE and 0 <= c < MAP_SIZE and player_blue_matrix[r][c] in [0, 1]:
+                        near_hits.append((r, c))
+    available_cells = near_hits or [(r, c) for r in range(MAP_SIZE) for c in range(MAP_SIZE) if player_blue_matrix[r][c] in [0, 1]]
+    if available_cells:
+        row, col = random.choice(available_cells)
+        if player_blue_matrix[row][col] == 1:
+            player_blue_matrix[row][col] = 2
+        else:
+            player_blue_matrix[row][col] = 3
+        return True
+    return False
 
 #Draw Map Before Battle (My Map - Blue 75x75)
 def draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked):
@@ -285,7 +371,6 @@ def draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked)
     
     # Handle right-click to rotate in edit_mode
     if right_mouse_clicked and edit_mode and selected_jelly is not None and temp_relative_positions is not None:
-        # Lưu thông số cũ
         old_offset_y, old_offset_x = selected_offset
         old_height = len(temp_relative_positions)
         old_width = len(temp_relative_positions[0])
@@ -294,7 +379,7 @@ def draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked)
         jelly_shape = [row[:] for row in temp_relative_positions]  # Sync jelly_shape for display
         temp_rotation = (temp_rotation + 1) % 4  # Update temp rotation
 
-        # Xoay offset
+        # Rotate offset
         selected_offset = rotate_offset_90_clockwise((old_offset_y, old_offset_x), old_height, old_width)
 
     # Stop edit_mode if the cursor get out of the map
@@ -430,7 +515,7 @@ def draw_battle_blue(screen_width, screen_height):
         for col in range(MAP_SIZE):
             tile_x = blue_map_x + col * EFFECTIVE_TILE_SIZE
             tile_y = blue_map_y + row * EFFECTIVE_TILE_SIZE
-            if player_blue_matrix[row][col] == 0:
+            if player_blue_matrix[row][col] in [0, 1, 2, 3]:
                 screen.blit(Blue75, (tile_x, tile_y))
 
     # Red map (25x25 tiles) positioned 100px to the right of blue map
@@ -442,28 +527,94 @@ def draw_battle_blue(screen_width, screen_height):
         for col in range(MAP_SIZE):
             tile_x = red_map_x + col * EFFECTIVE_SMALL_TILE_SIZE
             tile_y = red_map_y + row * EFFECTIVE_SMALL_TILE_SIZE
-            if player_red_matrix[row][col] == 0:
+            if player_red_matrix[row][col] in [0, 1, 2, 3]:
                 screen.blit(Red25, (tile_x, tile_y))
+
+    # Draw player's units (75x75)
+    drawn_jellyfish = set()
+    for jelly in placed_jellyfish:
+        if jelly["child_id"] not in drawn_jellyfish:
+            try:
+                child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == jelly["child_id"])
+                jelly_image = pygame.image.load(child["image"]).convert_alpha()
+                rotation_angle = jelly["rotation"] * 90
+                rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
+                tile_x = blue_map_x + jelly["start_col"] * EFFECTIVE_TILE_SIZE
+                tile_y = blue_map_y + jelly["start_row"] * EFFECTIVE_TILE_SIZE
+                screen.blit(rotated_image, (tile_x, tile_y))
+                drawn_jellyfish.add(jelly["child_id"])
+            except (pygame.error, StopIteration) as error:
+                print(f"Error: {error}")
+
+    # Draw jellyfish on red map (25x25, enemy, only if destroyed)
+    drawn_jellyfish = set()
+    for jelly in enemy_jellyfish:    
+        if jelly["child_id"] not in drawn_jellyfish and is_jelly_destroyed(jelly, player_red_matrix):
+            try:
+                child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == jelly["child_id"])
+                small_image = child["image"].replace("BT_", "S_RT_")
+                jelly_image = pygame.image.load(small_image).convert_alpha()
+                rotation_angle = jelly["rotation"] * 90
+                rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
+                tile_x = red_map_x + jelly["start_col"] * EFFECTIVE_SMALL_TILE_SIZE
+                tile_y = red_map_y + jelly["start_row"] * EFFECTIVE_SMALL_TILE_SIZE
+                screen.blit(rotated_image, (tile_x, tile_y))
+                drawn_jellyfish.add(jelly["child_id"])
+            except (pygame.error, StopIteration) as error:
+                print(f"Error: {error}")
+
+    # Draw Found/Missed on blue map (75x75)
+    for row in range(MAP_SIZE):
+        for col in range(MAP_SIZE):
+            tile_x = blue_map_x + col * EFFECTIVE_TILE_SIZE
+            tile_y = blue_map_y + row * EFFECTIVE_TILE_SIZE
+            if player_blue_matrix[row][col] == 2:
+                screen.blit(Found75, (tile_x, tile_y))
+            elif player_blue_matrix[row][col] == 3:
+                screen.blit(Missed75, (tile_x, tile_y))
+
+    # Draw Found/Missed on red map (25x25)
+    for row in range(MAP_SIZE):
+        for col in range(MAP_SIZE):
+            tile_x = red_map_x + col * EFFECTIVE_SMALL_TILE_SIZE
+            tile_y = red_map_y + row * EFFECTIVE_SMALL_TILE_SIZE
+            # Do not draw Found for dead units
+            is_destroyed = False
+            for jelly in enemy_jellyfish:
+                start_row = jelly["start_row"]
+                start_col = jelly["start_col"]
+                rel_y = row - start_row
+                rel_x = col - start_col
+                matrix = jelly["relative_positions"]
+                if (0 <= rel_y < len(matrix) and 0 <= rel_x < len(matrix[0]) and 
+                    matrix[rel_y][rel_x] == 1 and is_jelly_destroyed(jelly, player_red_matrix)):
+                    is_destroyed = True
+                    break
+
+            if not is_destroyed:
+                if player_red_matrix[row][col] == 2:
+                    screen.blit(Found25, (tile_x, tile_y))
+                elif player_red_matrix[row][col] == 3:
+                    screen.blit(Missed25, (tile_x, tile_y))
 
 # Draw Battle Red Phase (Blue 25x25 map on left, Red 75x75 map on right)
 def draw_battle_red(screen_width, screen_height):
     # Calculate total width of both maps + gap
     total_width = SMALL_MAP_PIXEL_SIZE + MAP_GAP + MAP_PIXEL_SIZE
-    # Center the entire block horizontally
+    # Center the entire block
     start_x = (screen_width - total_width) // 2
-    # Center the red map vertically
     red_map_y = (screen_height - MAP_PIXEL_SIZE) // 2
 
     # Blue map (25x25 tiles) positioned on the left
     blue_map_x = start_x
-    blue_map_y = red_map_y  # Align top of blue map with red map
+    blue_map_y = red_map_y
 
     # Draw blue map (10x10 with 25x25 tiles)
     for row in range(MAP_SIZE):
         for col in range(MAP_SIZE):
             tile_x = blue_map_x + col * EFFECTIVE_SMALL_TILE_SIZE
             tile_y = blue_map_y + row * EFFECTIVE_SMALL_TILE_SIZE
-            if player_red_matrix[row][col] == 0:
+            if player_red_matrix[row][col] in [0, 1, 2, 3]:
                 screen.blit(Blue25, (tile_x, tile_y))
 
     # Red map (75x75 tiles) positioned right of blue map
@@ -474,8 +625,122 @@ def draw_battle_red(screen_width, screen_height):
         for col in range(MAP_SIZE):
             tile_x = red_map_x + col * EFFECTIVE_TILE_SIZE
             tile_y = red_map_y + row * EFFECTIVE_TILE_SIZE
-            if player_blue_matrix[row][col] == 0:
+            if player_blue_matrix[row][col] in [0, 1, 2, 3]:
                 screen.blit(Red75, (tile_x, tile_y))
+
+    # Draw jellyfish on blue map (25x25, player's side)
+    drawn_jellyfish = set()
+    for jelly in placed_jellyfish:
+        if jelly["child_id"] not in drawn_jellyfish:
+            try:
+                child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == jelly["child_id"])
+                small_image = child["image"].replace("BT_", "S_BT_")
+                jelly_image = pygame.image.load(small_image).convert_alpha()
+                rotation_angle = jelly["rotation"] * 90
+                rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
+                tile_x = blue_map_x + jelly["start_col"] * EFFECTIVE_SMALL_TILE_SIZE
+                tile_y = blue_map_y + jelly["start_row"] * EFFECTIVE_SMALL_TILE_SIZE
+                screen.blit(rotated_image, (tile_x, tile_y))
+                drawn_jellyfish.add(jelly["child_id"])
+            except (pygame.error, StopIteration) as error:
+                print(f"Error: {error}")
+
+    # Draw jellyfish on red map (75x75, enemy, only if destroyed)
+    drawn_jellyfish = set()
+    for jelly in enemy_jellyfish:
+        if jelly["child_id"] not in drawn_jellyfish and is_jelly_destroyed(jelly, player_red_matrix):
+            try:
+                child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == jelly["child_id"])
+                enemy_image = child["image"].replace("BT_", "RT_")
+                jelly_image = pygame.image.load(enemy_image).convert_alpha()
+                rotation_angle = jelly["rotation"] * 90
+                rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
+                tile_x = red_map_x + jelly["start_col"] * EFFECTIVE_TILE_SIZE
+                tile_y = red_map_y + jelly["start_row"] * EFFECTIVE_TILE_SIZE
+                screen.blit(rotated_image, (tile_x, tile_y))
+                drawn_jellyfish.add(jelly["child_id"])
+            except (pygame.error, StopIteration) as error:
+                print(f"Error: {error}")
+
+    # Draw Found/Missed on blue map (25x25)
+    for row in range(MAP_SIZE):
+        for col in range(MAP_SIZE):
+            tile_x = blue_map_x + col * EFFECTIVE_SMALL_TILE_SIZE
+            tile_y = blue_map_y + row * EFFECTIVE_SMALL_TILE_SIZE
+            if player_blue_matrix[row][col] == 2:
+                screen.blit(Found25, (tile_x, tile_y))
+            elif player_blue_matrix[row][col] == 3:
+                screen.blit(Missed25, (tile_x, tile_y))
+
+    # Draw Found/Missed on red map (75x75)
+    for row in range(MAP_SIZE):
+        for col in range(MAP_SIZE):
+            tile_x = red_map_x + col * EFFECTIVE_TILE_SIZE
+            tile_y = red_map_y + row * EFFECTIVE_TILE_SIZE
+
+            # Do not draw Found for dead units
+            is_destroyed = False
+            for jelly in enemy_jellyfish:
+                start_row = jelly["start_row"]
+                start_col = jelly["start_col"]
+                rel_y = row - start_row
+                rel_x = col - start_col
+                matrix = jelly["relative_positions"]
+                if (0 <= rel_y < len(matrix) and 0 <= rel_x < len(matrix[0]) and 
+                    matrix[rel_y][rel_x] == 1 and is_jelly_destroyed(jelly, player_red_matrix)):
+                    is_destroyed = True
+                    break
+            if not is_destroyed:
+                if player_red_matrix[row][col] == 2:
+                    screen.blit(Found75, (tile_x, tile_y))
+                elif player_red_matrix[row][col] == 3:
+                    screen.blit(Missed75, (tile_x, tile_y))
+
+def check_game_over():
+    global game_over, winner, game_over_time
+    # Check player's units
+    player_alive = False
+    for jelly in placed_jellyfish:
+        if not is_jelly_destroyed(jelly, player_blue_matrix):
+            player_alive = True
+            break
+
+    # Check enemy's units
+    enemy_alive = False
+    for jelly in enemy_jellyfish:
+        if not is_jelly_destroyed(jelly, player_red_matrix):
+            enemy_alive = True
+            break
+
+    # Determine the result
+    if not player_alive:
+        game_over = True
+        winner = "enemy"
+        game_over_time = pygame.time.get_ticks()
+    elif not enemy_alive:
+        game_over = True
+        winner = "player"
+        game_over_time = pygame.time.get_ticks()
+
+def reset_game():
+    global player_blue_matrix, player_red_matrix, placed_jellyfish, enemy_jellyfish, phase, game_over, winner, waiting_for_turn, last_shot_time, think, start_thinking, thinking_time
+    # Reset matrix
+    player_blue_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]
+    player_red_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]
+
+    # Reset jellyfishes
+    placed_jellyfish = place_jellyfish_random(1)
+    enemy_jellyfish = []
+
+    # Reset states
+    phase = "Ready"
+    game_over = False
+    winner = None
+    waiting_for_turn = False
+    last_shot_time = 0
+    think = True
+    start_thinking = 0
+    thinking_time = 0
 
 running = True
 while running:
@@ -489,11 +754,17 @@ while running:
                 screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
-                # Switch between Battle_Blue and Battle_Red
-                if phrase == "Battle_Blue":
-                    phrase = "Battle_Red"
-                elif phrase == "Battle_Red":
-                    phrase = "Battle_Blue"
+                if phase == "Ready":
+                    enemy_jellyfish = place_enemy_jellyfish_random(1)
+                    print("Enemy Jellyfish Data:")
+                    for jelly in enemy_jellyfish:
+                        print(jelly)
+                    phase = "Battle_Blue"
+                    waiting_for_turn = False
+                    last_shot_time = 0
+                elif game_over:
+                    reset_game()
+
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: # Left mouse
             mouse_clicked = True
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3 and edit_mode: # Right mouse
@@ -502,13 +773,93 @@ while running:
     #Current window size
     screen_width, screen_height = screen.get_size()
     screen.fill((0, 0, 0))
+    current_time = pygame.time.get_ticks()
+    
+    if game_over:
+        # Vẽ màn hình hiện tại
+        if phase == "Battle_Blue":
+            draw_battle_blue(screen_width, screen_height)
+        elif phase == "Battle_Red":
+            draw_battle_red(screen_width, screen_height)
 
-    if phrase == "Ready":
-        draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked)
-    elif phrase == "Battle_Blue":
-        draw_battle_blue(screen_width, screen_height)
-    elif phrase == "Battle_Red":
-        draw_battle_red(screen_width, screen_height)
+        # Show ending notification
+        if current_time - game_over_time >= 1500:
+            # Calculate ending frame
+            if phase == "Battle_Blue":
+                total_width = MAP_PIXEL_SIZE + MAP_GAP + SMALL_MAP_PIXEL_SIZE
+                frame_left_x = screen_width - ((screen_width - total_width) // 2) - SMALL_MAP_PIXEL_SIZE - MAP_GAP
+                frame_right_x = screen_width
+                frame_top_y = SMALL_MAP_PIXEL_SIZE + ((screen_height - MAP_PIXEL_SIZE) // 2)
+                frame_bottom_y = screen_height - ((screen_height - MAP_PIXEL_SIZE) // 2)
+
+            else:  # Battle_Red
+                total_width = MAP_PIXEL_SIZE + MAP_GAP + SMALL_MAP_PIXEL_SIZE
+                frame_left_x = 0
+                frame_right_x = screen_width - ((screen_width - total_width) // 2) - MAP_PIXEL_SIZE
+                frame_top_y = SMALL_MAP_PIXEL_SIZE + ((screen_height - MAP_PIXEL_SIZE) // 2)
+                frame_bottom_y = screen_height - ((screen_height - MAP_PIXEL_SIZE) // 2)
+
+            # Calculate frame center
+            frame_center_x = (frame_left_x + frame_right_x) // 2
+            frame_center_y = (frame_top_y + frame_bottom_y) // 2
+
+            # Display ending notification
+            if winner == "player":
+                text = font_large.render("You won!", True, (0, 105, 148))
+            else:
+                text = font_large.render("You Lost!", True, (255, 0, 0))
+            text_rect = text.get_rect(center=(frame_center_x, frame_center_y))
+            screen.blit(text, text_rect)
+            
+            prompt = font_small.render("Press Space to play again", True, (255, 255, 255))
+            prompt_rect = prompt.get_rect(center=(frame_center_x, frame_center_y + 60))
+            screen.blit(prompt, prompt_rect)
+    
+    else:
+        if phase == "Ready":
+            draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked)
+        elif phase == "Battle_Blue":
+            draw_battle_blue(screen_width, screen_height)
+            if not waiting_for_turn:
+                if think:
+                    thinking_time = random.randint(500, 1500)
+                    start_thinking = pygame.time.get_ticks()
+                    think = False
+                elif current_time - start_thinking >= thinking_time and not think:
+                    enemy_attack()
+                    waiting_for_turn = True
+                    last_shot_time = current_time
+                    check_game_over()
+
+            if waiting_for_turn and current_time - last_shot_time >= 1500:
+                phase = "Battle_Red"
+                waiting_for_turn = False
+
+        elif phase == "Battle_Red":
+            draw_battle_red(screen_width, screen_height)
+            if not waiting_for_turn and mouse_clicked:
+                total_width = SMALL_MAP_PIXEL_SIZE + MAP_GAP + MAP_PIXEL_SIZE
+                start_x = (screen_width - total_width) // 2
+                red_map_x = start_x + SMALL_MAP_PIXEL_SIZE + MAP_GAP
+                red_map_y = (screen_height - MAP_PIXEL_SIZE) // 2
+                mouse_x, mouse_y = pygame.mouse.get_pos()
+                if (red_map_x <= mouse_x < red_map_x + MAP_PIXEL_SIZE and red_map_y <= mouse_y < red_map_y + MAP_PIXEL_SIZE):
+                    col = (mouse_x - red_map_x) // EFFECTIVE_TILE_SIZE
+                    row = (mouse_y - red_map_y) // EFFECTIVE_TILE_SIZE
+                    if 0 <= row < MAP_SIZE and 0 <= col < MAP_SIZE:
+                        if player_red_matrix[row][col] in [0, 1]:
+                            if player_red_matrix[row][col] == 1:
+                                player_red_matrix[row][col] = 2
+                            else:
+                                player_red_matrix[row][col] = 3
+                            waiting_for_turn = True
+                            last_shot_time = current_time
+                            check_game_over()
+
+            if waiting_for_turn and current_time - last_shot_time >= 1500:
+                phase = "Battle_Blue"
+                waiting_for_turn = False
+                think = True
     
     # Update display
     pygame.display.flip()
