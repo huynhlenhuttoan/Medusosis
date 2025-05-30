@@ -51,6 +51,7 @@ mouse_clicked = False
 right_mouse_clicked = False
 selected_offset = None  # (y, x) relative position of the block in clicked unit
 enemy_jellyfish = []
+enemy_targets = {}
 last_shot_time = 0 # (ms)
 waiting_for_turn = False
 think = False
@@ -184,22 +185,26 @@ def place_enemy_jellyfish_random(mother_id):
     for child in children:
         max_attempts = 100
         while max_attempts > 0:
-            start_row = random.randint(0, MAP_SIZE - 1)
-            start_col = random.randint(0, MAP_SIZE - 1)
-            matrix = rotate_matrix(child["relative_positions"], child["rotation"])
+            rotation = random.randint(0, 3)
+            matrix = rotate_matrix(child["relative_positions"], rotation)
             positions = []
             for y in range(len(matrix)):
                 for x in range(len(matrix[0])):
                     if matrix[y][x] == 1:
                         positions.append((x, y))
+
+            #Random position
+            start_row = random.randint(0, MAP_SIZE - 1)
+            start_col = random.randint(0, MAP_SIZE - 1)
+
             is_valid = True
             for x, y in positions:
                 row = start_row + y
                 col = start_col + x
-                if (row >= MAP_SIZE or col >= MAP_SIZE or row < 0 or col < 0 or 
-                    player_red_matrix[row][col] == 1):
+                if (row >= MAP_SIZE or col >= MAP_SIZE or row < 0 or col < 0 or player_red_matrix[row][col] == 1):
                     is_valid = False
                     break
+
             if is_valid:
                 for x, y in positions:
                     row = start_row + y
@@ -210,7 +215,7 @@ def place_enemy_jellyfish_random(mother_id):
                     "start_row": start_row,
                     "start_col": start_col,
                     "relative_positions": matrix,
-                    "rotation": child["rotation"]
+                    "rotation": rotation
                 })
                 break
             max_attempts -= 1
@@ -232,23 +237,95 @@ def is_jelly_destroyed(jelly, matrix):
     return True
 
 def enemy_attack():
-    near_hits = []
-    for row in range(MAP_SIZE):
-        for col in range(MAP_SIZE):
-            if player_blue_matrix[row][col] == 2: # Check player's map for hits
-                for dr, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
+    global enemy_targets
+    # If there are existing targets, prioritize them
+    if enemy_targets:
+        origin = next(iter(enemy_targets))
+        target = enemy_targets[origin]
+        # Get the next cell to attack from the queue
+        row, col = target["queue"].pop(0)
+
+        # Attack the cell
+        if player_blue_matrix[row][col] == 1:
+            player_blue_matrix[row][col] = 2  # Hit
+            # Add new target, with origin is a found cell
+            new_queue = []
+            # Expand queue with adjacent cells
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                r, c = row + dr, col + dc
+                if 0 <= r < MAP_SIZE and 0 <= c < MAP_SIZE and player_blue_matrix[r][c] in [0, 1] and (r, c) not in target["queue"]:
+                    new_queue.append((r, c))
+
+            # Add new target to enemy_targets
+            enemy_targets[(row, col)] = {"queue": new_queue}
+
+        elif player_blue_matrix[row][col] == 0:
+            player_blue_matrix[row][col] = 3  # Miss
+
+        # If the target's queue is empty, remove it
+        if not target["queue"]:
+            del enemy_targets[origin]
+
+        clean_enemy_targets()
+
+    else:
+        # No targets, attack randomly
+        available_cells = [(r, c) for r in range(MAP_SIZE) for c in range(MAP_SIZE) if player_blue_matrix[r][c] in [0, 1]]
+        if available_cells:
+            row, col = random.choice(available_cells)
+
+            # Attack the cell
+            if player_blue_matrix[row][col] == 1:
+                player_blue_matrix[row][col] = 2  # Hit
+                # Create a new target
+                queue = []
+                for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                     r, c = row + dr, col + dc
                     if 0 <= r < MAP_SIZE and 0 <= c < MAP_SIZE and player_blue_matrix[r][c] in [0, 1]:
-                        near_hits.append((r, c))
-    available_cells = near_hits or [(r, c) for r in range(MAP_SIZE) for c in range(MAP_SIZE) if player_blue_matrix[r][c] in [0, 1]]
-    if available_cells:
-        row, col = random.choice(available_cells)
-        if player_blue_matrix[row][col] == 1:
-            player_blue_matrix[row][col] = 2
-        else:
-            player_blue_matrix[row][col] = 3
-        return True
+                        queue.append((r, c))
+
+                # Add new target, with origin is a found cell
+                enemy_targets[(row, col)] = {"queue": queue}
+
+            elif player_blue_matrix[row][col] == 0:
+                player_blue_matrix[row][col] = 3  # Miss
+
+            clean_enemy_targets()
+            print(enemy_targets)
+            print("")
+            return True
+    
+    print("")
+    print(enemy_targets)
+
     return False
+
+def clean_enemy_targets():
+    global enemy_targets
+    surviving_targets = {}
+    
+    # Collect all cells positions (matrix) of dead units
+    dead_cells = set()
+
+    for jelly in placed_jellyfish:
+        if is_jelly_destroyed(jelly, player_blue_matrix):
+            start_row = jelly["start_row"]
+            start_col = jelly["start_col"]
+            matrix = jelly["relative_positions"]
+            for y in range(len(matrix)):
+                for x in range(len(matrix[0])):
+                    if matrix[y][x] == 1:
+                        cell = (start_row + y, start_col + x)
+                        dead_cells.add(cell)
+
+    for origin in list(enemy_targets.keys()):
+        # If orgin is a cell of dead unit, remove it
+        if origin in dead_cells:
+            continue
+        # If not, keep the target
+        surviving_targets[origin] = enemy_targets[origin]
+
+    enemy_targets = surviving_targets
 
 #Draw Map Before Battle (My Map - Blue 75x75)
 def draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked):
@@ -723,7 +800,7 @@ def check_game_over():
         game_over_time = pygame.time.get_ticks()
 
 def reset_game():
-    global player_blue_matrix, player_red_matrix, placed_jellyfish, enemy_jellyfish, phase, game_over, winner, waiting_for_turn, last_shot_time, think, start_thinking, thinking_time
+    global player_blue_matrix, player_red_matrix, placed_jellyfish, enemy_jellyfish, phase, game_over, winner, waiting_for_turn, last_shot_time, think, start_thinking, thinking_time, enemy_targets
     # Reset matrix
     player_blue_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]
     player_red_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]
@@ -741,6 +818,7 @@ def reset_game():
     think = True
     start_thinking = 0
     thinking_time = 0
+    enemy_targets = {}
 
 running = True
 while running:
@@ -822,7 +900,7 @@ while running:
             draw_battle_blue(screen_width, screen_height)
             if not waiting_for_turn:
                 if think:
-                    thinking_time = random.randint(500, 1500)
+                    thinking_time = random.randint(750, 1500)
                     start_thinking = pygame.time.get_ticks()
                     think = False
                 elif current_time - start_thinking >= thinking_time and not think:
