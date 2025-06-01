@@ -21,6 +21,8 @@ Found25 = pygame.image.load("Resources/Images/Map/Found25.png").convert_alpha()
 Found75 = pygame.image.load("Resources/Images/Map/Found75.png").convert_alpha()
 Missed25 = pygame.image.load("Resources/Images/Map/Missed25.png").convert_alpha()
 Missed75 = pygame.image.load("Resources/Images/Map/Missed75.png").convert_alpha()
+test = pygame.image.load("Resources/Images/Operator/B_Baphomet_1.png").convert_alpha()
+test_2 = pygame.image.load("Resources/Images/Operator/R_Guminho_1.png").convert_alpha()
 
 #Map settings
 TILE_SIZE = 75
@@ -42,15 +44,15 @@ player_red_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]   # 
 #Defining variables
 phase = "Ready"
 edit_mode = False
-selected_jelly = None
+selected_weakness = None
 temp_matrix = None
 temp_relative_positions = None # Temporary matrix after rotation
 temp_image = None #Temporary image path used for hightlighted block until the edit mode ends
-jelly_shape = None  # Selected jellyfish's shape (relative_positions matrix)
+weakness_shape = None  # Selected weakness shape (relative_positions matrix)
 mouse_clicked = False
 right_mouse_clicked = False
 selected_offset = None  # (y, x) relative position of the block in clicked unit
-enemy_jellyfish = []
+enemy_weakness = []
 enemy_targets = {}
 last_shot_time = 0 # (ms)
 waiting_for_turn = False
@@ -62,11 +64,11 @@ game_over_time = 0
 font_large = pygame.font.SysFont("arial", 80)
 font_small = pygame.font.SysFont("arial", 40)
 
-mother_jellyfish_data = [
+deity_data = [
     {
         "id": 1,
-        "name": "Moon Jellyfish",
-        "children": [ #If change rotation, relative_positions must be recalculated
+        "name": "deity",
+        "weakness": [ #If change rotation, relative_positions must be recalculated
             {"id": 1, "image": "Resources/Images/Units/BT_2.png", "relative_positions": [[1, 1]], "rotation": 0},
             #{"id": 2, "image": "Resources/Images/Units/BT_2.png", "relative_positions": [[1, 1]], "rotation": 1},
             {"id": 2, "image": "Resources/Images/Units/BT_6.png", "relative_positions": [[1, 0],
@@ -123,13 +125,13 @@ def rotate_offset_90_clockwise(offset, shape_height, shape_width):
     y, x = offset
     return (x, shape_height - 1 - y)
 
-# Function to place jellyfish randomly
-def place_jellyfish_random(mother_id):
-    mother = mother_jellyfish_data[0]  # Only one mother for now
-    children = mother["children"]
-    placed_jellyfish = []
+# Function to place weaknesses randomly
+def place_weaknesses_random(deity_id):
+    deity = deity_data[0]  # Only one deity for now
+    weakness = deity["weakness"]
+    placed_weakness = []
     
-    for child in children:
+    for child in weakness:
         max_attempts = 100  # Limit attempts to avoid infinite loop
         while max_attempts > 0:
             start_row = random.randint(0, MAP_SIZE - 1)
@@ -159,8 +161,8 @@ def place_jellyfish_random(mother_id):
                     row = start_row + y
                     col = start_col + x
                     player_blue_matrix[row][col] = 1
-                placed_jellyfish.append({
-                    "child_id": child["id"],
+                placed_weakness.append({
+                    "weakness_id": child["id"],
                     "start_row": start_row,
                     "start_col": start_col,
                     "relative_positions": matrix, # Save rotated matrix
@@ -169,20 +171,20 @@ def place_jellyfish_random(mother_id):
                 break
             max_attempts -= 1
     
-    return placed_jellyfish
+    return placed_weakness
 
-# Place all jellyfish randomly at start
-placed_jellyfish = place_jellyfish_random(1)
-print("Placed Jellyfish Data:")
-for jelly in placed_jellyfish:
-    print(jelly)
+# Place all weaknesses randomly at start
+placed_weakness = place_weaknesses_random(1)
+print("Placed Weaknesses Data:")
+for weakness in placed_weakness:
+    print(weakness)
 
-def place_enemy_jellyfish_random(mother_id):
-    mother = mother_jellyfish_data[0]
-    children = mother["children"]
-    placed_jellyfish = []
+def place_enemy_weaknesses_random(deity_id):
+    deity = deity_data[0]
+    weakness = deity["weakness"]
+    placed_weakness = []
     
-    for child in children:
+    for child in weakness:
         max_attempts = 100
         while max_attempts > 0:
             rotation = random.randint(0, 3)
@@ -210,8 +212,8 @@ def place_enemy_jellyfish_random(mother_id):
                     row = start_row + y
                     col = start_col + x
                     player_red_matrix[row][col] = 1
-                placed_jellyfish.append({
-                    "child_id": child["id"],
+                placed_weakness.append({
+                    "weakness_id": child["id"],
                     "start_row": start_row,
                     "start_col": start_col,
                     "relative_positions": matrix,
@@ -220,12 +222,12 @@ def place_enemy_jellyfish_random(mother_id):
                 break
             max_attempts -= 1
     
-    return placed_jellyfish
+    return placed_weakness
 
-def is_jelly_destroyed(jelly, matrix):
-    start_row = jelly["start_row"]
-    start_col = jelly["start_col"]
-    relative_positions = jelly["relative_positions"]
+def is_weakness_destroyed(weakness, matrix):
+    start_row = weakness["start_row"]
+    start_col = weakness["start_col"]
+    relative_positions = weakness["relative_positions"]
     for y in range(len(relative_positions)):
         for x in range(len(relative_positions[0])):
             if relative_positions[y][x] == 1:
@@ -304,14 +306,14 @@ def clean_enemy_targets():
     global enemy_targets
     surviving_targets = {}
     
-    # Collect all cells positions (matrix) of dead units
+    # Collect all cells positions (matrix) of dead weaknesses
     dead_cells = set()
 
-    for jelly in placed_jellyfish:
-        if is_jelly_destroyed(jelly, player_blue_matrix):
-            start_row = jelly["start_row"]
-            start_col = jelly["start_col"]
-            matrix = jelly["relative_positions"]
+    for weakness in placed_weakness:
+        if is_weakness_destroyed(weakness, player_blue_matrix):
+            start_row = weakness["start_row"]
+            start_col = weakness["start_col"]
+            matrix = weakness["relative_positions"]
             for y in range(len(matrix)):
                 for x in range(len(matrix[0])):
                     if matrix[y][x] == 1:
@@ -329,7 +331,7 @@ def clean_enemy_targets():
 
 #Draw Map Before Battle (My Map - Blue 75x75)
 def draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked):
-    global edit_mode, selected_jelly, temp_matrix, jelly_shape, temp_relative_positions, temp_rotation, temp_image, selected_offset
+    global edit_mode, selected_weakness, temp_matrix, weakness_shape, temp_relative_positions, temp_rotation, temp_image, selected_offset
     # Calculate map position to center it
     map_x = (screen_width - MAP_PIXEL_SIZE) // 2
     map_y = (screen_height - MAP_PIXEL_SIZE) // 2
@@ -346,54 +348,54 @@ def draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked)
     # Get current mouse position
     mouse_x, mouse_y = pygame.mouse.get_pos()
 
-    drawn_jellyfish = set()
-    hovered_jelly = None  # Store the jellyfish that is being hovered
+    drawn_weaknesses = set()
+    hovered_weakness = None  # Store the weakness that is being hovered
     hovered_offset = None
     if not edit_mode:
         if map_x <= mouse_x < map_x + MAP_PIXEL_SIZE and map_y <= mouse_y < map_y + MAP_PIXEL_SIZE:
             grid_col = (mouse_x - map_x) // EFFECTIVE_TILE_SIZE
             grid_row = (mouse_y - map_y) // EFFECTIVE_TILE_SIZE
-            for jelly in placed_jellyfish:
-                start_row = jelly["start_row"]
-                start_col = jelly["start_col"]
-                matrix = jelly["relative_positions"]
+            for weakness in placed_weakness:
+                start_row = weakness["start_row"]
+                start_col = weakness["start_col"]
+                matrix = weakness["relative_positions"]
                 rel_row = grid_row - start_row
                 rel_col = grid_col - start_col
                 if (0 <= rel_row < len(matrix) and 0 <= rel_col < len(matrix[0]) and matrix[rel_row][rel_col] == 1):
-                    hovered_jelly = jelly
+                    hovered_weakness = weakness
                     hovered_offset = (rel_row, rel_col)
                     break
 
     if mouse_clicked:
-        if hovered_jelly and not edit_mode:
+        if hovered_weakness and not edit_mode:
             # Start edit_mode
             edit_mode = True
-            selected_jelly = hovered_jelly
+            selected_weakness = hovered_weakness
             selected_offset = hovered_offset
             temp_matrix = [row[:] for row in player_blue_matrix]  # Copy the map matrix
 
             # Remove selected block's position in the temp matrix
-            jelly_matrix = selected_jelly["relative_positions"]
-            for y in range(len(jelly_matrix)):
-                for x in range(len(jelly_matrix[0])):
-                    if jelly_matrix[y][x] == 1:
-                        temp_row = selected_jelly["start_row"] + y
-                        temp_col = selected_jelly["start_col"] + x
+            weakness_matrix = selected_weakness["relative_positions"]
+            for y in range(len(weakness_matrix)):
+                for x in range(len(weakness_matrix[0])):
+                    if weakness_matrix[y][x] == 1:
+                        temp_row = selected_weakness["start_row"] + y
+                        temp_col = selected_weakness["start_col"] + x
                         if (0 <= temp_row < MAP_SIZE and 0 <= temp_col < MAP_SIZE):
                             temp_matrix[temp_row][temp_col] = 0
 
-            jelly_shape = selected_jelly["relative_positions"]
-            temp_relative_positions = [row[:] for row in jelly_matrix]  # Deep copy
-            temp_rotation = selected_jelly["rotation"]  # Initialize temp_rotation
+            weakness_shape = selected_weakness["relative_positions"]
+            temp_relative_positions = [row[:] for row in weakness_matrix]  # Deep copy
+            temp_rotation = selected_weakness["rotation"]  # Initialize temp_rotation
 
              # Set temp_image to highlighted image path
             try:
-                child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == selected_jelly["child_id"])
+                child = next(c for c in deity_data[0]["weakness"] if c["id"] == selected_weakness["weakness_id"])
                 temp_image = child["image"].replace("BT_", "H_BT_")
             except StopIteration:
                 temp_image = None
 
-        elif edit_mode and selected_jelly is not None and temp_relative_positions is not None:
+        elif edit_mode and selected_weakness is not None and temp_relative_positions is not None:
             # Check and apply new position
             cursor_row = (mouse_y - map_y) // EFFECTIVE_TILE_SIZE
             cursor_col = (mouse_x - map_x) // EFFECTIVE_TILE_SIZE
@@ -414,12 +416,12 @@ def draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked)
 
             if is_valid:
                 # Clear old position in player_blue_matrix
-                old_matrix = selected_jelly["relative_positions"]
+                old_matrix = selected_weakness["relative_positions"]
                 for y in range(len(old_matrix)):
                     for x in range(len(old_matrix[0])):
                         if old_matrix[y][x] == 1:
-                            old_row = selected_jelly["start_row"] + y
-                            old_col = selected_jelly["start_col"] + x
+                            old_row = selected_weakness["start_row"] + y
+                            old_col = selected_weakness["start_col"] + x
                             if (0 <= old_row < MAP_SIZE and 0 <= old_col < MAP_SIZE):
                                 player_blue_matrix[old_row][old_col] = 0
 
@@ -432,28 +434,28 @@ def draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked)
                             if 0 <= new_row < MAP_SIZE and 0 <= new_col < MAP_SIZE:
                                 player_blue_matrix[new_row][new_col] = 1            
 
-                selected_jelly["start_row"] = new_start_row
-                selected_jelly["start_col"] = new_start_col
-                selected_jelly["relative_positions"] = [row[:] for row in temp_relative_positions]
-                selected_jelly["rotation"] = temp_rotation
+                selected_weakness["start_row"] = new_start_row
+                selected_weakness["start_col"] = new_start_col
+                selected_weakness["relative_positions"] = [row[:] for row in temp_relative_positions]
+                selected_weakness["rotation"] = temp_rotation
 
             # Stop edit_mode
             edit_mode = False
-            selected_jelly = None
+            selected_weakness = None
             temp_matrix = None
-            jelly_shape = None
+            weakness_shape = None
             temp_relative_positions = None
             temp_rotation = 0
             temp_image = None
     
     # Handle right-click to rotate in edit_mode
-    if right_mouse_clicked and edit_mode and selected_jelly is not None and temp_relative_positions is not None:
+    if right_mouse_clicked and edit_mode and selected_weakness is not None and temp_relative_positions is not None:
         old_offset_y, old_offset_x = selected_offset
         old_height = len(temp_relative_positions)
         old_width = len(temp_relative_positions[0])
 
         temp_relative_positions = edit_rotate(temp_relative_positions)
-        jelly_shape = [row[:] for row in temp_relative_positions]  # Sync jelly_shape for display
+        weakness_shape = [row[:] for row in temp_relative_positions]  # Sync weakness_shape for display
         temp_rotation = (temp_rotation + 1) % 4  # Update temp rotation
 
         # Rotate offset
@@ -462,74 +464,74 @@ def draw_my_map(screen_width, screen_height, mouse_clicked, right_mouse_clicked)
     # Stop edit_mode if the cursor get out of the map
     if edit_mode and not (map_x <= mouse_x < map_x + MAP_PIXEL_SIZE and map_y <= mouse_y < map_y + MAP_PIXEL_SIZE):
         edit_mode = False
-        selected_jelly = None
+        selected_weakness = None
         temp_matrix = None
-        jelly_shape = None
+        weakness_shape = None
         temp_relative_positions = None
         temp_rotation = 0
         temp_image = None
 
-    # First pass: Check for hover and draw non-hovered jellyfish
-    for jelly in placed_jellyfish:
-        if jelly["child_id"] not in drawn_jellyfish:
-            if jelly != hovered_jelly:
+    # First pass: Check for hover and draw non-hovered weaknesses
+    for weakness in placed_weakness:
+        if weakness["weakness_id"] not in drawn_weaknesses:
+            if weakness != hovered_weakness:
                 try:
-                    child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == jelly["child_id"])
+                    child = next(c for c in deity_data[0]["weakness"] if c["id"] == weakness["weakness_id"])
 
                     # Base image path
                     base_image_path = child["image"]
-                    jelly_image = pygame.image.load(base_image_path).convert_alpha()
+                    weakness_image = pygame.image.load(base_image_path).convert_alpha()
 
-                    # Calculate the bounding box of the jellyfish based on its rotated matrix
-                    matrix = jelly["relative_positions"]
+                    # Calculate the bounding box of the weakness based on its rotated matrix
+                    matrix = weakness["relative_positions"]
 
                     # Base starting position
-                    start_row = jelly["start_row"]
-                    start_col = jelly["start_col"]
+                    start_row = weakness["start_row"]
+                    start_col = weakness["start_col"]
 
                     # Draw at the adjusted starting position
                     tile_x = map_x + start_col * EFFECTIVE_TILE_SIZE
                     tile_y = map_y + start_row * EFFECTIVE_TILE_SIZE
 
                     # Rotate the image based on rotation (clockwise)
-                    rotation_angle = jelly["rotation"] * 90
-                    rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
+                    rotation_angle = weakness["rotation"] * 90
+                    rotated_image = pygame.transform.rotate(weakness_image, -rotation_angle)
 
                     screen.blit(rotated_image, (tile_x, tile_y))
-                    drawn_jellyfish.add(jelly["child_id"])
+                    drawn_weaknesses.add(weakness["weakness_id"])
 
                 except (pygame.error, StopIteration) as error:
                     print(f"Error: {error}")
 
-    # Second pass: Draw the hovered jellyfish on top (if any) (outside edit_mode)
-    if hovered_jelly and not edit_mode:
-        for jelly in placed_jellyfish:
-            if jelly["child_id"] not in drawn_jellyfish:
+    # Second pass: Draw the hovered weakness on top (if any) (outside edit_mode)
+    if hovered_weakness and not edit_mode:
+        for weakness in placed_weakness:
+            if weakness["weakness_id"] not in drawn_weaknesses:
                 try:
-                    child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == hovered_jelly["child_id"])
+                    child = next(c for c in deity_data[0]["weakness"] if c["id"] == hovered_weakness["weakness_id"])
                     base_image_path = child["image"]
                     highlighted_image_path = base_image_path.replace("BT_", "H_BT_")
-                    jelly_image = pygame.image.load(highlighted_image_path).convert_alpha()
-                    rotation_angle = jelly["rotation"] * 90
-                    rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
-                    tile_x = map_x + hovered_jelly["start_col"] * EFFECTIVE_TILE_SIZE
-                    tile_y = map_y + hovered_jelly["start_row"] * EFFECTIVE_TILE_SIZE
+                    weakness_image = pygame.image.load(highlighted_image_path).convert_alpha()
+                    rotation_angle = weakness["rotation"] * 90
+                    rotated_image = pygame.transform.rotate(weakness_image, -rotation_angle)
+                    tile_x = map_x + hovered_weakness["start_col"] * EFFECTIVE_TILE_SIZE
+                    tile_y = map_y + hovered_weakness["start_row"] * EFFECTIVE_TILE_SIZE
                     screen.blit(rotated_image, (tile_x, tile_y))
-                    drawn_jellyfish.add(jelly["child_id"])
+                    drawn_weaknesses.add(weakness["weakness_id"])
 
                 except (pygame.error, StopIteration) as error:
                     print(f"Error: {error}")
 
-    # Third pass: Draw hovered jellyfish (inside edit_mode)
-    if edit_mode and selected_jelly is not None and temp_image is not None:
+    # Third pass: Draw hovered weakness (inside edit_mode)
+    if edit_mode and selected_weakness is not None and temp_image is not None:
         try:
-            jelly_image = pygame.image.load(temp_image).convert_alpha()
-            rotation_angle = selected_jelly["rotation"] * 90
-            rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
-            tile_x = map_x + selected_jelly["start_col"] * EFFECTIVE_TILE_SIZE
-            tile_y = map_y + selected_jelly["start_row"] * EFFECTIVE_TILE_SIZE
+            weakness_image = pygame.image.load(temp_image).convert_alpha()
+            rotation_angle = selected_weakness["rotation"] * 90
+            rotated_image = pygame.transform.rotate(weakness_image, -rotation_angle)
+            tile_x = map_x + selected_weakness["start_col"] * EFFECTIVE_TILE_SIZE
+            tile_y = map_y + selected_weakness["start_row"] * EFFECTIVE_TILE_SIZE
             screen.blit(rotated_image, (tile_x, tile_y))
-            drawn_jellyfish.add(selected_jelly["child_id"])
+            drawn_weaknesses.add(selected_weakness["weakness_id"])
         except (pygame.error, StopIteration) as error:
             print(f"Error: {error}")
 
@@ -607,36 +609,36 @@ def draw_battle_blue(screen_width, screen_height):
             if player_red_matrix[row][col] in [0, 1, 2, 3]:
                 screen.blit(Red25, (tile_x, tile_y))
 
-    # Draw player's units (75x75)
-    drawn_jellyfish = set()
-    for jelly in placed_jellyfish:
-        if jelly["child_id"] not in drawn_jellyfish:
+    # Draw player's weaknesses (75x75)
+    drawn_weaknesses = set()
+    for weakness in placed_weakness:
+        if weakness["weakness_id"] not in drawn_weaknesses:
             try:
-                child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == jelly["child_id"])
-                jelly_image = pygame.image.load(child["image"]).convert_alpha()
-                rotation_angle = jelly["rotation"] * 90
-                rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
-                tile_x = blue_map_x + jelly["start_col"] * EFFECTIVE_TILE_SIZE
-                tile_y = blue_map_y + jelly["start_row"] * EFFECTIVE_TILE_SIZE
+                child = next(c for c in deity_data[0]["weakness"] if c["id"] == weakness["weakness_id"])
+                weakness_image = pygame.image.load(child["image"]).convert_alpha()
+                rotation_angle = weakness["rotation"] * 90
+                rotated_image = pygame.transform.rotate(weakness_image, -rotation_angle)
+                tile_x = blue_map_x + weakness["start_col"] * EFFECTIVE_TILE_SIZE
+                tile_y = blue_map_y + weakness["start_row"] * EFFECTIVE_TILE_SIZE
                 screen.blit(rotated_image, (tile_x, tile_y))
-                drawn_jellyfish.add(jelly["child_id"])
+                drawn_weaknesses.add(weakness["weakness_id"])
             except (pygame.error, StopIteration) as error:
                 print(f"Error: {error}")
 
-    # Draw jellyfish on red map (25x25, enemy, only if destroyed)
-    drawn_jellyfish = set()
-    for jelly in enemy_jellyfish:    
-        if jelly["child_id"] not in drawn_jellyfish and is_jelly_destroyed(jelly, player_red_matrix):
+    # Draw weaknesses on red map (25x25, enemy, only if destroyed)
+    drawn_weaknesses = set()
+    for weakness in enemy_weakness:    
+        if weakness["weakness_id"] not in drawn_weaknesses and is_weakness_destroyed(weakness, player_red_matrix):
             try:
-                child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == jelly["child_id"])
+                child = next(c for c in deity_data[0]["weakness"] if c["id"] == weakness["weakness_id"])
                 small_image = child["image"].replace("BT_", "S_RT_")
-                jelly_image = pygame.image.load(small_image).convert_alpha()
-                rotation_angle = jelly["rotation"] * 90
-                rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
-                tile_x = red_map_x + jelly["start_col"] * EFFECTIVE_SMALL_TILE_SIZE
-                tile_y = red_map_y + jelly["start_row"] * EFFECTIVE_SMALL_TILE_SIZE
+                weakness_image = pygame.image.load(small_image).convert_alpha()
+                rotation_angle = weakness["rotation"] * 90
+                rotated_image = pygame.transform.rotate(weakness_image, -rotation_angle)
+                tile_x = red_map_x + weakness["start_col"] * EFFECTIVE_SMALL_TILE_SIZE
+                tile_y = red_map_y + weakness["start_row"] * EFFECTIVE_SMALL_TILE_SIZE
                 screen.blit(rotated_image, (tile_x, tile_y))
-                drawn_jellyfish.add(jelly["child_id"])
+                drawn_weaknesses.add(weakness["weakness_id"])
             except (pygame.error, StopIteration) as error:
                 print(f"Error: {error}")
 
@@ -655,16 +657,16 @@ def draw_battle_blue(screen_width, screen_height):
         for col in range(MAP_SIZE):
             tile_x = red_map_x + col * EFFECTIVE_SMALL_TILE_SIZE
             tile_y = red_map_y + row * EFFECTIVE_SMALL_TILE_SIZE
-            # Do not draw Found for dead units
+            # Do not draw Found for dead weaknesses
             is_destroyed = False
-            for jelly in enemy_jellyfish:
-                start_row = jelly["start_row"]
-                start_col = jelly["start_col"]
+            for weakness in enemy_weakness:
+                start_row = weakness["start_row"]
+                start_col = weakness["start_col"]
                 rel_y = row - start_row
                 rel_x = col - start_col
-                matrix = jelly["relative_positions"]
+                matrix = weakness["relative_positions"]
                 if (0 <= rel_y < len(matrix) and 0 <= rel_x < len(matrix[0]) and 
-                    matrix[rel_y][rel_x] == 1 and is_jelly_destroyed(jelly, player_red_matrix)):
+                    matrix[rel_y][rel_x] == 1 and is_weakness_destroyed(weakness, player_red_matrix)):
                     is_destroyed = True
                     break
 
@@ -673,6 +675,9 @@ def draw_battle_blue(screen_width, screen_height):
                     screen.blit(Found25, (tile_x, tile_y))
                 elif player_red_matrix[row][col] == 3:
                     screen.blit(Missed25, (tile_x, tile_y))
+
+    screen.blit(test, (((((screen_width - total_width) // 2) - test.get_width()) // 2), 0))
+    screen.blit(test_2, ((screen_width - (((screen_width - total_width) // 2) + test_2.get_width()) // 2), 0))
 
 # Draw Battle Red Phase (Blue 25x25 map on left, Red 75x75 map on right)
 def draw_battle_red(screen_width, screen_height):
@@ -705,37 +710,37 @@ def draw_battle_red(screen_width, screen_height):
             if player_blue_matrix[row][col] in [0, 1, 2, 3]:
                 screen.blit(Red75, (tile_x, tile_y))
 
-    # Draw jellyfish on blue map (25x25, player's side)
-    drawn_jellyfish = set()
-    for jelly in placed_jellyfish:
-        if jelly["child_id"] not in drawn_jellyfish:
+    # Draw weaknesses on blue map (25x25, player's side)
+    drawn_weaknesses = set()
+    for weakness in placed_weakness:
+        if weakness["weakness_id"] not in drawn_weaknesses:
             try:
-                child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == jelly["child_id"])
+                child = next(c for c in deity_data[0]["weakness"] if c["id"] == weakness["weakness_id"])
                 small_image = child["image"].replace("BT_", "S_BT_")
-                jelly_image = pygame.image.load(small_image).convert_alpha()
-                rotation_angle = jelly["rotation"] * 90
-                rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
-                tile_x = blue_map_x + jelly["start_col"] * EFFECTIVE_SMALL_TILE_SIZE
-                tile_y = blue_map_y + jelly["start_row"] * EFFECTIVE_SMALL_TILE_SIZE
+                weakness_image = pygame.image.load(small_image).convert_alpha()
+                rotation_angle = weakness["rotation"] * 90
+                rotated_image = pygame.transform.rotate(weakness_image, -rotation_angle)
+                tile_x = blue_map_x + weakness["start_col"] * EFFECTIVE_SMALL_TILE_SIZE
+                tile_y = blue_map_y + weakness["start_row"] * EFFECTIVE_SMALL_TILE_SIZE
                 screen.blit(rotated_image, (tile_x, tile_y))
-                drawn_jellyfish.add(jelly["child_id"])
+                drawn_weaknesses.add(weakness["weakness_id"])
             except (pygame.error, StopIteration) as error:
                 print(f"Error: {error}")
 
-    # Draw jellyfish on red map (75x75, enemy, only if destroyed)
-    drawn_jellyfish = set()
-    for jelly in enemy_jellyfish:
-        if jelly["child_id"] not in drawn_jellyfish and is_jelly_destroyed(jelly, player_red_matrix):
+    # Draw weaknesses on red map (75x75, enemy, only if destroyed)
+    drawn_weaknesses = set()
+    for weakness in enemy_weakness:
+        if weakness["weakness_id"] not in drawn_weaknesses and is_weakness_destroyed(weakness, player_red_matrix):
             try:
-                child = next(c for c in mother_jellyfish_data[0]["children"] if c["id"] == jelly["child_id"])
+                child = next(c for c in deity_data[0]["weakness"] if c["id"] == weakness["weakness_id"])
                 enemy_image = child["image"].replace("BT_", "RT_")
-                jelly_image = pygame.image.load(enemy_image).convert_alpha()
-                rotation_angle = jelly["rotation"] * 90
-                rotated_image = pygame.transform.rotate(jelly_image, -rotation_angle)
-                tile_x = red_map_x + jelly["start_col"] * EFFECTIVE_TILE_SIZE
-                tile_y = red_map_y + jelly["start_row"] * EFFECTIVE_TILE_SIZE
+                weakness_image = pygame.image.load(enemy_image).convert_alpha()
+                rotation_angle = weakness["rotation"] * 90
+                rotated_image = pygame.transform.rotate(weakness_image, -rotation_angle)
+                tile_x = red_map_x + weakness["start_col"] * EFFECTIVE_TILE_SIZE
+                tile_y = red_map_y + weakness["start_row"] * EFFECTIVE_TILE_SIZE
                 screen.blit(rotated_image, (tile_x, tile_y))
-                drawn_jellyfish.add(jelly["child_id"])
+                drawn_weaknesses.add(weakness["weakness_id"])
             except (pygame.error, StopIteration) as error:
                 print(f"Error: {error}")
 
@@ -755,16 +760,16 @@ def draw_battle_red(screen_width, screen_height):
             tile_x = red_map_x + col * EFFECTIVE_TILE_SIZE
             tile_y = red_map_y + row * EFFECTIVE_TILE_SIZE
 
-            # Do not draw Found for dead units
+            # Do not draw Found for dead weaknesses
             is_destroyed = False
-            for jelly in enemy_jellyfish:
-                start_row = jelly["start_row"]
-                start_col = jelly["start_col"]
+            for weakness in enemy_weakness:
+                start_row = weakness["start_row"]
+                start_col = weakness["start_col"]
                 rel_y = row - start_row
                 rel_x = col - start_col
-                matrix = jelly["relative_positions"]
+                matrix = weakness["relative_positions"]
                 if (0 <= rel_y < len(matrix) and 0 <= rel_x < len(matrix[0]) and 
-                    matrix[rel_y][rel_x] == 1 and is_jelly_destroyed(jelly, player_red_matrix)):
+                    matrix[rel_y][rel_x] == 1 and is_weakness_destroyed(weakness, player_red_matrix)):
                     is_destroyed = True
                     break
             if not is_destroyed:
@@ -773,19 +778,22 @@ def draw_battle_red(screen_width, screen_height):
                 elif player_red_matrix[row][col] == 3:
                     screen.blit(Missed75, (tile_x, tile_y))
 
+    screen.blit(test, (((((screen_width - total_width) // 2) - test.get_width()) // 2), 0))
+    screen.blit(test_2, ((screen_width - (((screen_width - total_width) // 2) + test_2.get_width()) // 2), 0))
+
 def check_game_over():
     global game_over, winner, game_over_time
-    # Check player's units
+    # Check player's weaknesses
     player_alive = False
-    for jelly in placed_jellyfish:
-        if not is_jelly_destroyed(jelly, player_blue_matrix):
+    for weakness in placed_weakness:
+        if not is_weakness_destroyed(weakness, player_blue_matrix):
             player_alive = True
             break
 
-    # Check enemy's units
+    # Check enemy's weaknesses
     enemy_alive = False
-    for jelly in enemy_jellyfish:
-        if not is_jelly_destroyed(jelly, player_red_matrix):
+    for weakness in enemy_weakness:
+        if not is_weakness_destroyed(weakness, player_red_matrix):
             enemy_alive = True
             break
 
@@ -800,14 +808,14 @@ def check_game_over():
         game_over_time = pygame.time.get_ticks()
 
 def reset_game():
-    global player_blue_matrix, player_red_matrix, placed_jellyfish, enemy_jellyfish, phase, game_over, winner, waiting_for_turn, last_shot_time, think, start_thinking, thinking_time, enemy_targets
+    global player_blue_matrix, player_red_matrix, placed_weakness, enemy_weakness, phase, game_over, winner, waiting_for_turn, last_shot_time, think, start_thinking, thinking_time, enemy_targets
     # Reset matrix
     player_blue_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]
     player_red_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]
 
-    # Reset jellyfishes
-    placed_jellyfish = place_jellyfish_random(1)
-    enemy_jellyfish = []
+    # Reset weaknesses
+    placed_weakness = place_weaknesses_random(1)
+    enemy_weakness = []
 
     # Reset states
     phase = "Ready"
@@ -833,10 +841,10 @@ while running:
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
                 if phase == "Ready":
-                    enemy_jellyfish = place_enemy_jellyfish_random(1)
-                    print("Enemy Jellyfish Data:")
-                    for jelly in enemy_jellyfish:
-                        print(jelly)
+                    enemy_weakness = place_enemy_weaknesses_random(1)
+                    print("Enemy Weakness Data:")
+                    for weakness in enemy_weakness:
+                        print(weakness)
                     phase = "Battle_Blue"
                     waiting_for_turn = False
                     last_shot_time = 0

@@ -1,3 +1,8 @@
+Visual update v.0.3 (01/06/2025):
+    - Change main theme from jellyfishes to monsters
+    - Recolor assets
+    - Character display during battle
+
 3rd test version 0.2.1 (31/05/2025):
     - Enhance enemy AI during battle phase
     - Enable enemy AI to rotate units
