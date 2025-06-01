@@ -21,8 +21,35 @@ Found25 = pygame.image.load("Resources/Images/Map/Found25.png").convert_alpha()
 Found75 = pygame.image.load("Resources/Images/Map/Found75.png").convert_alpha()
 Missed25 = pygame.image.load("Resources/Images/Map/Missed25.png").convert_alpha()
 Missed75 = pygame.image.load("Resources/Images/Map/Missed75.png").convert_alpha()
-test = pygame.image.load("Resources/Images/Operator/B_Baphomet_1.png").convert_alpha()
-test_2 = pygame.image.load("Resources/Images/Operator/R_Guminho_1.png").convert_alpha()
+test = None
+test_2 = None
+
+#Characters
+Guminho_idle = pygame.image.load("Resources/SpriteSheets/Gumiho_idle.png")
+Baphomet_idle = pygame.image.load("Resources/SpriteSheets/Baphomet_idle.png")
+
+characters_sprite = [
+    {
+        "name": "Guminho",
+        "sprite": Guminho_idle,
+        "frame_width": 1024,
+        "frame_height": 759,
+        "frame_count": 10,
+        "frame_time": 140
+    },
+    {
+        "name": "Baphomet",
+        "sprite": Baphomet_idle,
+        "frame_width": 1320,
+        "frame_height": 846,
+        "frame_count": 5,
+        "frame_time": 140
+    }
+]
+
+selected_character_index = 0  # Chỉ số nhân vật hiện tại
+current_frame = 0  # Frame hiện tại cho nhân vật
+last_frame_update = 0  # Thời gian cập nhật frame cuối
 
 #Map settings
 TILE_SIZE = 75
@@ -42,7 +69,7 @@ player_blue_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]  # 
 player_red_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]   # 0 = Red tile
 
 #Defining variables
-phase = "Ready"
+phase = "Character_Selection"
 edit_mode = False
 selected_weakness = None
 temp_matrix = None
@@ -80,6 +107,46 @@ deity_data = [
         ]
     }
 ]
+
+def draw_character_selection(screen_width, screen_height):
+    screen.fill((20, 25, 55))  # Nền màu (20, 25, 55)
+    global current_frame, last_frame_update, selected_character_index
+
+    chosen_characters_sprite = characters_sprite[selected_character_index]
+
+    # Tính toán frame hiện tại
+    current_time = pygame.time.get_ticks()
+    if current_time - last_frame_update >= chosen_characters_sprite["frame_time"]:
+        current_frame = (current_frame + 1) % chosen_characters_sprite["frame_count"]
+        last_frame_update = current_time
+
+    # Lấy frame hiện tại từ sprite sheet
+    sprite_width, sprite_height = chosen_characters_sprite["sprite"].get_size()
+    frame_x = current_frame * chosen_characters_sprite["frame_width"]
+    # Đảm bảo frame_rect nằm trong sprite sheet
+    frame_x = min(frame_x, sprite_width - chosen_characters_sprite["frame_width"])
+    frame_rect = pygame.Rect(frame_x, 0, chosen_characters_sprite["frame_width"], min(chosen_characters_sprite["frame_height"], sprite_height))
+ 
+    try:
+        frame_image = chosen_characters_sprite["sprite"].subsurface(frame_rect)
+    except ValueError as e:
+        print(f"Error with frame_rect: {frame_rect}, sprite size: {sprite_width}x{sprite_height}")
+        return
+
+    # Tính vị trí để vẽ giữa màn hình
+    frame_pos_x = (screen_width - chosen_characters_sprite["frame_width"]) // 2
+    frame_pos_y = (screen_height - chosen_characters_sprite["frame_height"]) // 2
+    screen.blit(frame_image, (frame_pos_x, frame_pos_y))
+
+    # Hiển thị tên nhân vật
+    name_text = font_small.render(chosen_characters_sprite["name"], True, (255, 255, 255))
+    name_rect = name_text.get_rect(center=(screen_width // 2, screen_height - 100))
+    screen.blit(name_text, name_rect)
+
+    # Hiển thị hướng dẫn nhấn Space
+    prompt = font_small.render("Press Space to continue", True, (255, 255, 255))
+    prompt_rect = prompt.get_rect(center=(screen_width // 2, screen_height - 50))
+    screen.blit(prompt, prompt_rect)
 
 # Function to convert relative_positions to matrix
 def positions_to_matrix(positions):
@@ -808,7 +875,7 @@ def check_game_over():
         game_over_time = pygame.time.get_ticks()
 
 def reset_game():
-    global player_blue_matrix, player_red_matrix, placed_weakness, enemy_weakness, phase, game_over, winner, waiting_for_turn, last_shot_time, think, start_thinking, thinking_time, enemy_targets
+    global player_blue_matrix, player_red_matrix, placed_weakness, enemy_weakness, phase, game_over, winner, waiting_for_turn, last_shot_time, think, start_thinking, thinking_time, enemy_targets, test, test_2
     # Reset matrix
     player_blue_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]
     player_red_matrix = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]
@@ -818,7 +885,7 @@ def reset_game():
     enemy_weakness = []
 
     # Reset states
-    phase = "Ready"
+    phase = "Character_Selection"
     game_over = False
     winner = None
     waiting_for_turn = False
@@ -827,6 +894,8 @@ def reset_game():
     start_thinking = 0
     thinking_time = 0
     enemy_targets = {}
+    test = None
+    test_2 = None
 
 running = True
 while running:
@@ -839,7 +908,24 @@ while running:
             if not is_fullscreen:
                 screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
         elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE:
+            if phase == "Character_Selection":
+                if event.key == pygame.K_SPACE:
+                    # Lấy nhân vật được chọn và nhân vật còn lại
+                    selected_char = characters_sprite[selected_character_index]["name"]
+                    other_char = characters_sprite[(selected_character_index + 1) % len(characters_sprite)]["name"]
+                    # Tải hình ảnh cho test (đội xanh) và test_2 (đội đỏ)
+                    test = pygame.image.load(f"Resources/Images/Operator/B_{selected_char}_1.png").convert_alpha()
+                    test_2 = pygame.image.load(f"Resources/Images/Operator/R_{other_char}_1.png").convert_alpha()
+                    phase = "Ready"
+                elif event.key == pygame.K_LEFT:
+                    selected_character_index = (selected_character_index - 1) % len(characters_sprite)
+                    current_frame = 0  # Reset frame khi đổi nhân vật
+                    last_frame_update = pygame.time.get_ticks()
+                elif event.key == pygame.K_RIGHT:
+                    selected_character_index = (selected_character_index + 1) % len(characters_sprite)
+                    current_frame = 0  # Reset frame khi đổi nhân vật
+                    last_frame_update = pygame.time.get_ticks()
+            elif event.key == pygame.K_SPACE:
                 if phase == "Ready":
                     enemy_weakness = place_enemy_weaknesses_random(1)
                     print("Enemy Weakness Data:")
@@ -861,6 +947,10 @@ while running:
     screen.fill((0, 0, 0))
     current_time = pygame.time.get_ticks()
     
+    if phase == "Character_Selection":
+        draw_character_selection(screen_width, screen_height)
+
+
     if game_over:
         # Vẽ màn hình hiện tại
         if phase == "Battle_Blue":
