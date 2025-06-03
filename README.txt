@@ -1,3 +1,7 @@
+Visual update v.0.3.1 (03.06/2025):
+   - Recolor assets
+   - Rework characters' avatars
+
 Visual update v.0.3 (01/06/2025):
     - Change main theme from jellyfishes to monsters
     - Recolor assets
